@@ -16,6 +16,7 @@ services:
     volumes:
       - ./dev:/code/
       - ./gsheets:/code/gsheets/
+      - ./creds:/creds/
     environment:
       DB_HOST: db
       DB_USER: postgres

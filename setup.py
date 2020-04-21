@@ -19,6 +19,6 @@ setuptools.setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
-    install_requires=['peppercorn'],
+    install_requires=['google-api-python-client', 'google-auth', 'google-auth-httplib2', 'google-auth-oauthlib'],
     python_requires='>=3',
 )
