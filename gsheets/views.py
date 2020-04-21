@@ -1,6 +1,7 @@
 from django.shortcuts import render, redirect
 from django.views.generic import TemplateView
 from django.urls import reverse
+from django.core.exceptions import ObjectDoesNotExist
 from django.core import cache
 from .settings import gsheets_settings
 from .models import AccessCredentials
@@ -31,6 +32,7 @@ class AuthorizeView(TemplateView):
             # Enable offline access so that you can refresh an access token without
             # re-prompting the user for permission. Recommended for web server apps.
             access_type='offline',
+            prompt='consent',
             # Enable incremental authorization. Recommended as a best practice.
             include_granted_scopes='true'
         )
@@ -48,7 +50,9 @@ class OAuthSuccessView(TemplateView):
         state = request.session['state']
 
         flow = google_auth_oauthlib.flow.Flow.from_client_secrets_file(
-            gsheets_settings.CLIENT_SECRETS, scopes=gsheets_settings.SCOPES, state=state
+            gsheets_settings.CLIENT_SECRETS,
+            scopes=gsheets_settings.SCOPES,
+            state=state
         )
         flow.redirect_uri = get_oauth_cb_url(request)
 
@@ -58,13 +62,18 @@ class OAuthSuccessView(TemplateView):
 
         # Store credentials in the session.
         credentials = flow.credentials
-        ac, created = AccessCredentials.objects.get_or_create(token=credentials.token, defaults={
-            'refresh_token': credentials.refresh_token,
-            'token_uri': credentials.token_uri,
-            'client_id': credentials.client_id,
-            'client_secret': credentials.client_secret,
-            'scopes': credentials.scopes,
-        })
+        try:
+            ac = AccessCredentials.objects.get(token=credentials.token)
+        except ObjectDoesNotExist:
+            logger.debug(f'no access credential with token {credentials.token} exists, creating')
+            ac = AccessCredentials.objects.create(
+                token=credentials.token,
+                refresh_token=credentials.refresh_token,
+                token_uri=credentials.token_uri,
+                client_id=credentials.client_id,
+                client_secret=credentials.client_secret,
+                scopes=credentials.scopes
+            )
 
         logger.debug(f'access credential {ac} init')
 

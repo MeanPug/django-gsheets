@@ -9,5 +9,7 @@ class AccessCredentials(models.Model):
     client_secret = models.CharField(max_length=255)
     scopes = models.CharField(max_length=255)
 
+    created_time = models.DateTimeField(auto_now_add=True)
+
     def __str__(self):
         return f'{self.token} // {self.refresh_token} ({self.id})'

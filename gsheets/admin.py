@@ -4,5 +4,5 @@ from .models import AccessCredentials
 
 @admin.register(AccessCredentials)
 class AccessCredentialsAdmin(admin.ModelAdmin):
-    fields = ('token', 'refresh_token', 'token_uri', 'scopes',)
-    readonly_fields = ('token_uri', 'scopes',)
+    fields = ('token', 'refresh_token', 'token_uri', 'scopes', 'created_time',)
+    readonly_fields = ('token_uri', 'scopes', 'created_time')
