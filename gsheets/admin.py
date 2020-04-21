@@ -1,3 +1,8 @@
 from django.contrib import admin
+from .models import AccessCredentials
 
-# Register your models here.
+
+@admin.register(AccessCredentials)
+class AccessCredentialsAdmin(admin.ModelAdmin):
+    fields = ('token', 'refresh_token', 'token_uri', 'scopes',)
+    readonly_fields = ('token_uri', 'scopes',)

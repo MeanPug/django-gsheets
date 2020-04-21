@@ -4,9 +4,14 @@ from django.urls import reverse
 from django.core import cache
 from .settings import gsheets_settings
 from .models import AccessCredentials
+from .auth import get_oauth_cb_url, ensure_https
 import google.oauth2.credentials
 import google_auth_oauthlib.flow
 import googleapiclient.discovery
+import logging
+import re
+
+logger = logging.getLogger(__name__)
 
 
 class AuthorizeView(TemplateView):
@@ -19,7 +24,8 @@ class AuthorizeView(TemplateView):
         # for the OAuth 2.0 client, which you configured in the API Console. If this
         # value doesn't match an authorized URI, you will get a 'redirect_uri_mismatch'
         # error.
-        flow.redirect_uri = request.build_absolute_uri(reverse('gsheets_auth_success'))
+        flow.redirect_uri = get_oauth_cb_url(request)
+        logger.debug(f'flow redirect URI is {flow.redirect_uri}')
 
         authorization_url, state = flow.authorization_url(
             # Enable offline access so that you can refresh an access token without
@@ -44,15 +50,13 @@ class OAuthSuccessView(TemplateView):
         flow = google_auth_oauthlib.flow.Flow.from_client_secrets_file(
             gsheets_settings.CLIENT_SECRETS, scopes=gsheets_settings.SCOPES, state=state
         )
-        flow.redirect_uri = request.build_absolute_uri(reverse('gsheets_auth_success'))
+        flow.redirect_uri = get_oauth_cb_url(request)
 
         # Use the authorization server's response to fetch the OAuth 2.0 tokens.
-        authorization_response = request.build_absolute_uri()
+        authorization_response = ensure_https(request.build_absolute_uri())
         flow.fetch_token(authorization_response=authorization_response)
 
         # Store credentials in the session.
-        # ACTION ITEM: In a production app, you likely want to save these
-        #              credentials in a persistent database instead.
         credentials = flow.credentials
         ac, created = AccessCredentials.objects.get_or_create(token=credentials.token, defaults={
             'refresh_token': credentials.refresh_token,
@@ -62,5 +66,7 @@ class OAuthSuccessView(TemplateView):
             'scopes': credentials.scopes,
         })
 
+        logger.debug(f'access credential {ac} init')
+
         # redirect to admin page for the AC
-        return redirect(reverse('admin:access_credentials_change', args=(ac.id,)))
+        return redirect(reverse('admin:gsheets_accesscredentials_change', args=(ac.id,)))

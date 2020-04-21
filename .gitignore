@@ -131,4 +131,5 @@ dmypy.json
 .idea/
 dev/gsheets
 .DS_Store
-client_secrets.json
+creds/*
+!creds/.gitkeep
