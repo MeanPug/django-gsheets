@@ -37,5 +37,5 @@ def get_gapi_credentials(access_credentials):
         token_uri=access_credentials.token_uri,
         client_id=access_credentials.client_id,
         client_secret=access_credentials.client_secret,
-        scopes=access_credentials.scopes,
+        scopes=access_credentials.parsed_scopes,
     )

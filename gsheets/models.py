@@ -1,4 +1,5 @@
 from django.db import models
+import json
 
 
 class AccessCredentials(models.Model):
@@ -10,6 +11,10 @@ class AccessCredentials(models.Model):
     scopes = models.CharField(max_length=255)
 
     created_time = models.DateTimeField(auto_now_add=True)
+
+    @property
+    def parsed_scopes(self):
+        return json.loads(self.scopes)
 
     def __str__(self):
         return f'{self.token} // {self.refresh_token} ({self.id})'

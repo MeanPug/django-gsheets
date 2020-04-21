@@ -10,6 +10,7 @@ import google.oauth2.credentials
 import google_auth_oauthlib.flow
 import googleapiclient.discovery
 import logging
+import json
 import re
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,7 @@ class OAuthSuccessView(TemplateView):
                 token_uri=credentials.token_uri,
                 client_id=credentials.client_id,
                 client_secret=credentials.client_secret,
-                scopes=credentials.scopes
+                scopes=json.dumps(credentials.scopes)
             )
 
         logger.debug(f'access credential {ac} init')
