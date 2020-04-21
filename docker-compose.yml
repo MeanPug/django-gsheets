@@ -1,0 +1,26 @@
+version: '3.7'
+services:
+  db:
+    image: postgres:12
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+  app:
+    image: dev/django-gsheets
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./dev:/code/
+      - ./gsheets:/code/gsheets/
+    environment:
+      DB_HOST: db
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: postgres
+    command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+volumes:
+  pgdata: {}
