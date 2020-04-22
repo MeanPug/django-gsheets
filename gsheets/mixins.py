@@ -1,5 +1,7 @@
 from googleapiclient.discovery import build
+from django.core.exceptions import ObjectDoesNotExist
 from .auth import get_gapi_credentials
+import string
 import re
 import logging
 
@@ -114,6 +116,16 @@ class BaseGoogleSheetMixin(object):
         return start, end
 
     @staticmethod
+    def convert_col_letter_to_number(col_letter):
+        """ converts a column letter - like 'A' - to it's index in the alphabet """
+        return string.ascii_lowercase.index(col_letter.lower())
+
+    @staticmethod
+    def convert_col_number_to_letter(col_number):
+        """ converts a column index - like 1 - to it's alphabetic equivalent (like 'A') """
+        return string.ascii_lowercase[col_number].upper()
+
+    @staticmethod
     def get_sheet_range(sheet_name, data_range):
         return '!'.join([sheet_name, data_range])
 
@@ -146,6 +158,38 @@ class BaseGoogleSheetMixin(object):
 
         return None
 
+    def writeout(self, range, data):
+        """ writes the given data to the given range in the spreadsheet (without batching)
+        :param range: `str` a range (like 'Sheet1!A2:B3') to write data to
+        :param data: `list` of `list` the set of data to write
+        """
+        body = {
+            'values': data
+        }
+        return self.api.spreadsheets().values().update(
+            spreadsheetId=self.spreadsheet_id, range=range, valueInputOption='RAW', body=body
+        ).execute()
+
+    def writeout_batch(self, range, data):
+        """ writes the given data to the given range in the spreadsheet
+        :param range: `str` a range (like 'Sheet1!A2:B3') to write data to
+        :param data: `list` of `list` the set of data to write
+        """
+        request_body = {
+            'value_input_option': 'RAW',
+            'data': {
+                'range': range,
+                'values': data
+            }
+        }
+
+        request = self.api.spreadsheets().values().batchUpdate(spreadsheetId=self.spreadsheet_id, body=request_body)
+        response = request.execute()
+
+        logger.debug(f'got response {response} executing writeout in range {range}')
+
+        return response
+
 
 class SheetPushableMixin(BaseGoogleSheetMixin):
     """ mixes in functionality to push data to a google sheet """
@@ -170,11 +214,11 @@ class SheetPushableMixin(BaseGoogleSheetMixin):
 
                 logger.debug(f'writing out {len(writeout_data)} rows of data to {writeout_range}')
 
-                self.writeout(writeout_range, writeout_data)
+                self.writeout_batch(writeout_range, writeout_data)
                 last_writeout = i
 
             push_data = {f: getattr(obj, f) for f in self.__class__.get_push_fields()}
-            self.upsert_data(**push_data)
+            self.upsert_sheet_data(**push_data)
 
         # writeout any remaining data
         if last_writeout < len(queryset):
@@ -182,9 +226,11 @@ class SheetPushableMixin(BaseGoogleSheetMixin):
             writeout_range = BaseGoogleSheetMixin.get_sheet_range(
                 self.sheet_name, f'{cols_start}{max(2, last_writeout)}:{cols_end}{rows_end}'
             )
-            self.writeout(writeout_range, self.sheet_data[last_writeout:])
+            self.writeout_batch(writeout_range, self.sheet_data[last_writeout:])
 
         logger.info('FINISHED WITH TABLE UPSERT')
+
+        # TODO: This doesn't handle deletions
 
     @classmethod
     def get_queryset(cls):
@@ -195,7 +241,7 @@ class SheetPushableMixin(BaseGoogleSheetMixin):
         """ get the field names from the model which are to be pushed. MUST INCLUDE THE model_id_field """
         return [f.name for f in cls._meta.fields]
 
-    def upsert_data(self, **data):
+    def upsert_sheet_data(self, **data):
         """ upserts the data, given as a dict of field/values, to the sheet. If the data already exists, replaces
         its previous value
         :param data: `dict` of field/value
@@ -222,32 +268,88 @@ class SheetPushableMixin(BaseGoogleSheetMixin):
         else:
             self.sheet_data.append(row_data)
 
-    def writeout(self, range, data):
-        """ writes the given data to the given range in the spreadsheet
-        :param range: `str` a range (like 'Sheet1!A2:B3') to write data to
-        :param data: `list` of `list` the set of data to write
+
+class SheetPullableMixin(BaseGoogleSheetMixin):
+    """ mixes in functionality to pull data from a google sheet and use that data to keep model data updated. Notes:
+    * won't delete rows that are in the DB but not in the sheet
+    * will update existing row values with values from the sheet
+    """
+    def pull_sheet(self):
+        sheet_fields = self.get_pull_fields()
+        field_indexes = {self.column_index(f): f for f in self.sheet_headers if f in sheet_fields or sheet_fields == 'all'}
+        instances = []
+
+        for row_ix, row in enumerate(self.sheet_data):
+            row_data = {}
+
+            for col_ix in range(len(row)):
+                if col_ix in field_indexes:
+                    field = field_indexes[col_ix]
+                    value = row[col_ix]
+
+                    row_data[field] = value
+
+            instances.append(self.upsert_model_data(row_ix, **row_data))
+
+        return instances
+
+    def upsert_model_data(self, row_ix, **data):
+        """ takes a dict of field/value information from the sheet and inserts or updates a model instance
+        with that data
+        :param row_ix: `int` index of the row which is being upserted into a model instance
+        :param data: `dict`
         """
-        request_body = {
-            'value_input_option': 'RAW',
-            'data': {
-                'range': range,
-                'values': data
-            }
+        # cleaned data
+        cleaned_data = {
+            field: getattr(self, f'clean_{field}_data')(value) if hasattr(self, f'clean_{field}_data') else value
+            for field, value in data.items() if field != self.sheet_id_field
         }
 
-        request = self.api.spreadsheets().values().batchUpdate(spreadsheetId=self.spreadsheet_id, body=request_body)
-        response = request.execute()
+        try:
+            row_id = data[self.sheet_id_field]
 
-        logger.debug(f'got response {response} executing writeout in range {range}')
+            model_filter = {
+                self.model_id_field: row_id
+            }
+            instance, created = self.__class__.objects.get(**model_filter), False
+        except (KeyError, ObjectDoesNotExist):
+            logger.debug(f'creating new model instance')
+            # if there's no ID field in the row or the ID doesnt exist
+            instance, created = self.__class__.objects.create(**cleaned_data), True
 
-        return response
+        if created:
+            # writeout the instances' ID after the instance is created
+            cols_start, cols_end = self.sheet_range_cols
+            rows_start, rows_end = self.sheet_range_rows
 
+            # find the column letter where the sheet ID lives
+            sheet_id_ix = self.column_index(self.sheet_id_field)
+            sheet_id_col_ix = BaseGoogleSheetMixin.convert_col_letter_to_number(cols_start) + sheet_id_ix
+            sheet_id_col_name = BaseGoogleSheetMixin.convert_col_number_to_letter(sheet_id_col_ix)
 
-class SheetPullableMixin(object):
-    """ mixes in functionality to pull data from a google sheet """
-    pass
+            instance_id = str(getattr(instance, self.model_id_field))
+            writeout_range = BaseGoogleSheetMixin.get_sheet_range(
+                self.sheet_name, f'{sheet_id_col_name}{rows_start + row_ix + 1}:{sheet_id_col_name}{rows_start + row_ix + 1}'
+            )
+
+            logger.debug(f'writing out instance ID for created instance to {writeout_range}')
+
+            self.writeout(writeout_range, [[instance_id]])
+        else:
+            logger.debug(f'updating instance {instance} with data')
+            [setattr(instance, field, value) for field, value in cleaned_data.items() if field != self.model_id_field]
+            instance.save()
+
+        return instance
+
+    @classmethod
+    def get_pull_fields(cls):
+        """ get the field names from the sheet which are to be pulled. MUST INCLUDE THE sheet_id_field """
+        return 'all'
 
 
 class SheetSyncableMixin(SheetPushableMixin, SheetPullableMixin):
     """ mixes in ability to 2-way sync data from/to a google sheet """
-    pass
+    def sync(self):
+        self.pull_sheet()
+        self.upsert_table()

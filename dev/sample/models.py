@@ -3,7 +3,7 @@ from gsheets import mixins
 from uuid import uuid4
 
 
-class Person(mixins.SheetPushableMixin, models.Model):
+class Person(mixins.SheetPushableMixin, mixins.SheetPullableMixin, models.Model):
     spreadsheet_id = '18F_HLftNtaouHgA3fmfT2M1Va9oO-YWTBw2EDsuz8V4'
     model_id_field = 'guid'
 
