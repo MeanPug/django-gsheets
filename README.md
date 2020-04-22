@@ -30,7 +30,17 @@ GSHEETS = {
 }
 ```
 
+### Add GSheets URLS to the Project
+Update your project URLs to include django-gsheets paths.
+```python
+urlpatterns = [
+    ...
+    path('', include('gsheets.urls')),
+]
+```
+
 ## Usage
+### Add the SheetSyncableMixin to a Model
 In order to provide two-way sync capability to a models' data, all you need to do is add the `SheetSyncableMixin` to it and tell the model what sheet to use. For example:
 
 ```python
@@ -57,6 +67,9 @@ To two-way sync sheet data, simply run `Person.sync_sheet()`.
 
 If you want to be more fine-grained and have models that either just push to Google Sheets or just pull, you can swap `SheetSyncableMixin` for `SheetPushableMixin` or `SheetPullableMixin` (respectively).
 
+### Authorize Google Sheets
+Before your first usage, you'll need to authorize the app to perform operations on your Google Sheets. To do so, access `/gsheets/authorize/` on your application and go through the standard oauth flow.
+
 ### Further Configuration
 You can further configure the functionality of sheet sync by specifying any of the following fields on the model.
 
@@ -73,3 +86,13 @@ You can further configure the functionality of sheet sync by specifying any of t
 
 ## Management Commands
 If you don't want to manually sync data to and from models to gsheets, `django-gsheets` ships with a handy management command that automatically discovers all models mixing in one of `SheetPullableMixin`, `SheetPushableMixin`, or `SheetSyncableMixin` and runs the appropriate sync command. To execute, simply run `python manage.py syncgsheets`.
+
+## Known Limitations
+
+* No support for Related fields
+
+## Development
+Any and all contributions welcome. To get started with a development environment, simply pull down a copy of this repo and bring up the environment with `docker-compose up -d`. Before doing so, however, you should have the following in place:
+
+1. A google project setup (notes on that in the `Installation` section above). After setting up, download the client credentials JSON file to the `creds` folder in this repo. This folder is volume mounted into the running application container at `/creds`.
+2. An ngrok (or similar) server set up to proxy an https connection to your local dev environment. You'll need this because Google OAuth2 only supports https redirect URIs.
