@@ -84,6 +84,25 @@ You can further configure the functionality of sheet sync by specifying any of t
 | max_rows  | 30000  | (internal) used for internal calculations, don't change unless you know what you're doing  |
 | max_col  | Z  | (internal) used for internal calculations, don't change unless you know what you're doing  |
 
+#### Postprocessing
+You can hook into the postprocessing step of row pulling to perform operations like tying the model instance to a related object. For example, the following demonstrates using the `sheet_row_processed` signal to update a Car with it's owner information based on a field called `owner_last_name` in the spreadsheet
+```python
+from django.dispatch import receiver
+from django.core.exceptions import ObjectDoesNotExist
+from gsheets.signals import sheet_row_processed
+from .models import Car, Person
+
+
+@receiver(sheet_row_processed, sender=Car)
+def tie_car_to_owner(instance=None, created=None, row_data=None, **kwargs):
+    try:
+        instance.owner = Person.objects.get(last_name__iexact=row_data['owner_last_name'])
+        instance.save()
+    except (ObjectDoesNotExist, KeyError):
+        pass
+
+```
+
 ## Management Commands
 If you don't want to manually sync data to and from models to gsheets, `django-gsheets` ships with a handy management command that automatically discovers all models mixing in one of `SheetPullableMixin`, `SheetPushableMixin`, or `SheetSyncableMixin` and runs the appropriate sync command. To execute, simply run `python manage.py syncgsheets`.
 
