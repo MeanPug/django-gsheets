@@ -1,6 +1,7 @@
 from googleapiclient.discovery import build
 from django.core.exceptions import ObjectDoesNotExist
 from .auth import get_gapi_credentials
+from .signals import sheet_row_processed
 import string
 import re
 import logging
@@ -156,7 +157,7 @@ class BaseSheetInterface(object):
 
         # look through the sheet ID column for the model ID
         for i, r in enumerate(self.sheet_data):
-            if r[sheet_id_ix] == model_id:
+            if r[sheet_id_ix] == str(model_id):
                 return i
 
         return None
@@ -170,7 +171,7 @@ class BaseSheetInterface(object):
             'values': data
         }
         return self.api.spreadsheets().values().update(
-            spreadsheetId=self.spreadsheet_id, range=range, valueInputOption='RAW', body=body
+            spreadsheetId=self.spreadsheet_id, range=range, valueInputOption='USER_ENTERED', body=body
         ).execute()
 
     def writeout_batch(self, range, data):
@@ -179,7 +180,7 @@ class BaseSheetInterface(object):
         :param data: `list` of `list` the set of data to write
         """
         request_body = {
-            'value_input_option': 'RAW',
+            'value_input_option': 'USER_ENTERED',
             'data': {
                 'range': range,
                 'values': data
@@ -301,10 +302,11 @@ class SheetPullInterface(BaseSheetInterface):
         :param row_ix: `int` index of the row which is being upserted into a model instance
         :param data: `dict`
         """
+        model_fields = {f.name for f in self.model_cls._meta.get_fields()}
         # cleaned data
         cleaned_data = {
             field: getattr(self, f'clean_{field}_data')(value) if hasattr(self, f'clean_{field}_data') else value
-            for field, value in data.items() if field != self.sheet_id_field
+            for field, value in data.items() if field != self.sheet_id_field and field in model_fields
         }
 
         try:
@@ -314,7 +316,7 @@ class SheetPullInterface(BaseSheetInterface):
                 self.model_id_field: row_id
             }
             instance, created = self.model_cls.objects.get(**model_filter), False
-        except (KeyError, ObjectDoesNotExist):
+        except (KeyError, ObjectDoesNotExist, ValueError):
             logger.debug(f'creating new model instance')
             # if there's no ID field in the row or the ID doesnt exist
             instance, created = self.model_cls.objects.create(**cleaned_data), True
@@ -341,6 +343,8 @@ class SheetPullInterface(BaseSheetInterface):
             logger.debug(f'updating instance {instance} with data')
             [setattr(instance, field, value) for field, value in cleaned_data.items() if field != self.model_id_field]
             instance.save()
+
+        sheet_row_processed.send(sender=self.model_cls, instance=instance, created=created, row_data=data)
 
         return instance
 
