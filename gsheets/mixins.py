@@ -350,6 +350,6 @@ class SheetPullableMixin(BaseGoogleSheetMixin):
 
 class SheetSyncableMixin(SheetPushableMixin, SheetPullableMixin):
     """ mixes in ability to 2-way sync data from/to a google sheet """
-    def sync(self):
+    def sheet_sync(self):
         self.pull_sheet()
         self.upsert_table()
