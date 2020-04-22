@@ -73,3 +73,7 @@ You can further configure the functionality of sheet sync by specifying any of t
 
 ## Management Commands
 If you don't want to manually sync data to and from models to gsheets, `django-gsheets` ships with a handy management command that automatically discovers all models mixing in one of `SheetPullableMixin`, `SheetPushableMixin`, or `SheetSyncableMixin` and runs the appropriate sync command. To execute, simply run `python manage.py syncgsheets`.
+
+## Known Limitations
+
+* No support for Related fields
