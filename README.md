@@ -30,7 +30,17 @@ GSHEETS = {
 }
 ```
 
+### Add GSheets URLS to the Project
+Update your project URLs to include django-gsheets paths.
+```python
+urlpatterns = [
+    ...
+    path('', include('gsheets.urls')),
+]
+```
+
 ## Usage
+### Add the SheetSyncableMixin to a Model
 In order to provide two-way sync capability to a models' data, all you need to do is add the `SheetSyncableMixin` to it and tell the model what sheet to use. For example:
 
 ```python
@@ -56,6 +66,9 @@ class Person(mixins.SheetSyncableMixin, models.Model):
 To two-way sync sheet data, simply run `Person.sync_sheet()`.
 
 If you want to be more fine-grained and have models that either just push to Google Sheets or just pull, you can swap `SheetSyncableMixin` for `SheetPushableMixin` or `SheetPullableMixin` (respectively).
+
+### Authorize Google Sheets
+Before your first usage, you'll need to authorize the app to perform operations on your Google Sheets. To do so, access `/gsheets/authorize/` on your application and go through the standard oauth flow.
 
 ### Further Configuration
 You can further configure the functionality of sheet sync by specifying any of the following fields on the model.
