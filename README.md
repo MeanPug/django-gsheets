@@ -90,3 +90,9 @@ If you don't want to manually sync data to and from models to gsheets, `django-g
 ## Known Limitations
 
 * No support for Related fields
+
+## Development
+Any and all contributions welcome. To get started with a development environment, simply pull down a copy of this repo and bring up the environment with `docker-compose up -d`. Before doing so, however, you should have the following in place:
+
+1. A google project setup (notes on that in the `Installation` section above). After setting up, download the client credentials JSON file to the `creds` folder in this repo. This folder is volume mounted into the running application container at `/creds`.
+2. An ngrok (or similar) server set up to proxy an https connection to your local dev environment. You'll need this because Google OAuth2 only supports https redirect URIs.
