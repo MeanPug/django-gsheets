@@ -159,8 +159,11 @@ class BaseSheetInterface(object):
 
         # look through the sheet ID column for the model ID
         for i, r in enumerate(self.sheet_data):
-            if r[sheet_id_ix] == str(model_id):
-                return i
+            try:
+                if r[sheet_id_ix] == str(model_id):
+                    return i
+            except IndexError:
+                continue
 
         return None
 
@@ -178,17 +181,20 @@ class BaseSheetInterface(object):
             spreadsheetId=self.spreadsheet_id, range=range, valueInputOption='USER_ENTERED', body=body
         ).execute()
 
-    def writeout_batch(self, range, data):
-        """ writes the given data to the given range in the spreadsheet
-        :param range: `str` a range (like 'Sheet1!A2:B3') to write data to
-        :param data: `list` of `list` the set of data to write
+    @decorators.backoff_on_exception(decorators.expo, HttpError)
+    def writeout_batch(self, ranges, data):
+        """ writes the given data to the given ranges in the spreadsheet
+        :param ranges: `list` of `str` ranges (like 'Sheet1!A2:B3') to write data to
+        :param data: `list` of `list` of `list` the set of data to write to the list of ranges
+        :raises: `ValueError` if the list of ranges and data don't have the same length
         """
+        if len(ranges) != len(data):
+            raise ValueError(f'the length of ranges ({len(ranges)} must equal the length of data ({len(data)})')
+
+        request_data = zip(ranges, data)
         request_body = {
             'value_input_option': 'USER_ENTERED',
-            'data': {
-                'range': range,
-                'values': data
-            }
+            'data': [{'range': r, 'values': values} for r, values in request_data]
         }
 
         request = self.api.spreadsheets().values().batchUpdate(spreadsheetId=self.spreadsheet_id, body=request_body)
@@ -227,7 +233,7 @@ class SheetPushInterface(BaseSheetInterface):
 
                 logger.debug(f'writing out {len(writeout_data)} rows of data to {writeout_range}')
 
-                self.writeout_batch(writeout_range, writeout_data)
+                self.writeout_batch([writeout_range], [writeout_data])
                 last_writeout = i
 
             push_data = {f: getattr(obj, f) for f in self.push_fields}
@@ -239,7 +245,7 @@ class SheetPushInterface(BaseSheetInterface):
             writeout_range = BaseSheetInterface.get_sheet_range(
                 self.sheet_name, f'{cols_start}{max(2, last_writeout)}:{cols_end}{rows_end}'
             )
-            self.writeout_batch(writeout_range, self.sheet_data[last_writeout:])
+            self.writeout_batch([writeout_range], [self.sheet_data[last_writeout:]])
 
         logger.info('FINISHED WITH TABLE UPSERT')
 
@@ -283,10 +289,17 @@ class SheetPullInterface(BaseSheetInterface):
 
     def pull_sheet(self):
         sheet_fields = self.pull_fields
+        rows_start, rows_end = self.sheet_range_rows
         field_indexes = {self.column_index(f): f for f in self.sheet_headers if f in sheet_fields or sheet_fields == 'all'}
         instances = []
+        writeout_batch = []
 
         for row_ix, row in enumerate(self.sheet_data):
+            if len(writeout_batch) >= self.batch_size:
+                logger.debug('writing out a batch of instance IDs')
+                self.writeout_created_instance_ids(writeout_batch)
+                writeout_batch = []
+
             row_data = {}
 
             for col_ix in range(len(row)):
@@ -296,7 +309,15 @@ class SheetPullInterface(BaseSheetInterface):
 
                     row_data[field] = value
 
-            instances.append(self.upsert_model_data(row_ix, **row_data))
+            instance, created = self.upsert_model_data(row_ix, **row_data)
+
+            instances.append(instance)
+            if created:
+                writeout_batch.append((instance, rows_start + row_ix + 1)) # + 1 to not count header
+
+        if len(writeout_batch) > 0:
+            logger.debug(f'writing out remaining {len(writeout_batch)} instance IDs')
+            self.writeout_created_instance_ids(writeout_batch)
 
         return instances
 
@@ -325,32 +346,55 @@ class SheetPullInterface(BaseSheetInterface):
             # if there's no ID field in the row or the ID doesnt exist
             instance, created = self.model_cls.objects.create(**cleaned_data), True
 
-        if created:
-            # writeout the instances' ID after the instance is created
-            cols_start, cols_end = self.sheet_range_cols
-            rows_start, rows_end = self.sheet_range_rows
-
-            # find the column letter where the sheet ID lives
-            sheet_id_ix = self.column_index(self.sheet_id_field)
-            sheet_id_col_ix = BaseSheetInterface.convert_col_letter_to_number(cols_start) + sheet_id_ix
-            sheet_id_col_name = BaseSheetInterface.convert_col_number_to_letter(sheet_id_col_ix)
-
-            instance_id = str(getattr(instance, self.model_id_field))
-            writeout_range = BaseSheetInterface.get_sheet_range(
-                self.sheet_name, f'{sheet_id_col_name}{rows_start + row_ix + 1}:{sheet_id_col_name}{rows_start + row_ix + 1}'
-            )
-
-            logger.debug(f'writing out instance ID for created instance to {writeout_range}')
-
-            self.writeout(writeout_range, [[instance_id]])
-        else:
+        if not created:
             logger.debug(f'updating instance {instance} with data')
             [setattr(instance, field, value) for field, value in cleaned_data.items() if field != self.model_id_field]
             instance.save()
 
         sheet_row_processed.send(sender=self.model_cls, instance=instance, created=created, row_data=data)
 
-        return instance
+        return instance, created
+
+    def writeout_created_instance_ids(self, created_instances):
+        cols_start, cols_end = self.sheet_range_cols
+        start_row = created_instances[0][1]
+
+        # find the column letter where the sheet ID lives
+        sheet_id_ix = self.column_index(self.sheet_id_field)
+        sheet_id_col_ix = BaseSheetInterface.convert_col_letter_to_number(cols_start) + sheet_id_ix
+        sheet_id_col_name = BaseSheetInterface.convert_col_number_to_letter(sheet_id_col_ix)
+
+        writeout_ranges = []
+        writeout_data = []
+        last_writeout_ix = 0
+        # we segment the created instances into contiguous blocks of rows for the batch update
+        for i in range(len(created_instances)):
+            instance, row_ix = created_instances[i]
+            last_row_ix = created_instances[i - 1][1] if i > 0 else row_ix
+
+            # if we're at the end of a block of rows or on the last row, it delineates a writeout block
+            if row_ix > last_row_ix + 1:
+                writeout_ranges.append(BaseSheetInterface.get_sheet_range(
+                    self.sheet_name,
+                    f'{sheet_id_col_name}{start_row}:{sheet_id_col_name}{last_row_ix}'
+                ))
+                writeout_data.append(
+                    [[str(getattr(instance, self.model_id_field))] for instance, noop in created_instances[last_writeout_ix:i]]
+                )
+
+                start_row = row_ix
+                last_writeout_ix = i
+            elif i == len(created_instances) - 1:
+                writeout_ranges.append(BaseSheetInterface.get_sheet_range(
+                    self.sheet_name,
+                    f'{sheet_id_col_name}{start_row}:{sheet_id_col_name}{row_ix}'
+                ))
+                writeout_data.append(
+                    [[str(getattr(instance, self.model_id_field))] for instance, noop in created_instances[last_writeout_ix:]]
+                )
+
+        logger.debug(f'writing out {writeout_ranges} data ranges')
+        return self.writeout_batch(writeout_ranges, writeout_data)
 
 
 class SheetSync(SheetPushInterface, SheetPullInterface):
