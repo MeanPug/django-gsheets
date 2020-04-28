@@ -1,7 +1,9 @@
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from django.core.exceptions import ObjectDoesNotExist
 from .auth import get_gapi_credentials
 from .signals import sheet_row_processed
+from . import decorators
 import string
 import re
 import logging
@@ -162,6 +164,7 @@ class BaseSheetInterface(object):
 
         return None
 
+    @decorators.backoff_on_exception(decorators.expo, HttpError)
     def writeout(self, range, data):
         """ writes the given data to the given range in the spreadsheet (without batching)
         :param range: `str` a range (like 'Sheet1!A2:B3') to write data to
@@ -170,6 +173,7 @@ class BaseSheetInterface(object):
         body = {
             'values': data
         }
+
         return self.api.spreadsheets().values().update(
             spreadsheetId=self.spreadsheet_id, range=range, valueInputOption='USER_ENTERED', body=body
         ).execute()
