@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="django-gsheets",
-    version="0.0.5",
+    version="0.0.6",
     author="Bobby Steinbach",
     author_email="developers@meanpug.com",
     description="Django app providing two-way sync from Google Sheets to Django models",
