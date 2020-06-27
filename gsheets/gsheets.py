@@ -309,7 +309,7 @@ class SheetPullInterface(BaseSheetInterface):
 
                     row_data[field] = value
 
-            cleaned_row_data = self.clean_row_data(row_data)
+            cleaned_row_data = self.clean_row_data(row_data) if hasattr(self.model_cls, 'clean_row_data') else row_data
 
             instance, created = self.upsert_model_data(row_ix, **cleaned_row_data)
 
@@ -322,13 +322,6 @@ class SheetPullInterface(BaseSheetInterface):
             self.writeout_created_instance_ids(writeout_batch)
 
         return instances
-
-    def clean_row_data(self, row_data):
-        """ takes the row data and runs any necessary transformations or cleaning processes before returning the cleaned data
-        :param row_data: `dict`
-        :return: `dict` the cleaned row data
-        """
-        return row_data
 
     def upsert_model_data(self, row_ix, **data):
         """ takes a dict of field/value information from the sheet and inserts or updates a model instance
