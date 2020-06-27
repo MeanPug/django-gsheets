@@ -311,6 +311,11 @@ class SheetPullInterface(BaseSheetInterface):
 
             cleaned_row_data = getattr(self.model_cls, 'clean_row_data')(row_data) if hasattr(self.model_cls, 'clean_row_data') else row_data
 
+            # give the model the ability to prevent a row from running through upsert
+            if hasattr(self.model_cls, 'should_upsert_row') and not getattr(self.model_cls, 'should_upsert_row')(cleaned_row_data):
+                logger.debug(f'model prevented upsert of row {row_ix}')
+                continue
+
             instance, created = self.upsert_model_data(row_ix, **cleaned_row_data)
 
             instances.append(instance)
