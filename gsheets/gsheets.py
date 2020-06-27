@@ -309,7 +309,7 @@ class SheetPullInterface(BaseSheetInterface):
 
                     row_data[field] = value
 
-            cleaned_row_data = self.clean_row_data(row_data) if hasattr(self.model_cls, 'clean_row_data') else row_data
+            cleaned_row_data = getattr(self.model_cls, 'clean_row_data')(row_data) if hasattr(self.model_cls, 'clean_row_data') else row_data
 
             instance, created = self.upsert_model_data(row_ix, **cleaned_row_data)
 
