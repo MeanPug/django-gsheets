@@ -337,7 +337,7 @@ class SheetPullInterface(BaseSheetInterface):
         model_fields = {f.name for f in self.model_cls._meta.get_fields()}
         # cleaned data
         cleaned_data = {
-            field: getattr(self, f'clean_{field}_data')(value) if hasattr(self, f'clean_{field}_data') else value
+            field: getattr(self.model_cls, f'clean_{field}_data')(value) if hasattr(self.model_cls, f'clean_{field}_data') else value
             for field, value in data.items() if field != self.sheet_id_field and field in model_fields
         }
 
