@@ -17,12 +17,14 @@ def ensure_https(uri):
     return uri
 
 
-def get_oauth_cb_url(request):
+def get_oauth_cb_url(request, cb_hostname=None):
     """ given a request object, gets the URL of the oauth callback
     :param request: `django.Request` instance
+    :param cb_hostname: `str` if provided, the hostname of the callback URL (otherwise uses request context info)
     :return: `str` URL for oauth cb
     """
-    callback_url = request.build_absolute_uri(reverse('gsheets_auth_success'))
+    path = reverse('gsheets_auth_success')
+    callback_url = request.build_absolute_uri(path) if cb_hostname is None else f'https://{cb_hostname}{path}'
     return ensure_https(callback_url)
 
 

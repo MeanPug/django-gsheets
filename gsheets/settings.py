@@ -8,6 +8,7 @@ import os
 
 DEFAULTS = {
     'CLIENT_SECRETS': os.path.abspath('client_secrets.json'),
+    'OAUTH_REDIRECT_HOSTNAME': None,
     'SCOPES': ['https://www.googleapis.com/auth/spreadsheets']
 }
 

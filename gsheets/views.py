@@ -26,7 +26,7 @@ class AuthorizeView(TemplateView):
         # for the OAuth 2.0 client, which you configured in the API Console. If this
         # value doesn't match an authorized URI, you will get a 'redirect_uri_mismatch'
         # error.
-        flow.redirect_uri = get_oauth_cb_url(request)
+        flow.redirect_uri = get_oauth_cb_url(request, cb_hostname=gsheets_settings.OAUTH_REDIRECT_HOSTNAME)
         logger.debug(f'flow redirect URI is {flow.redirect_uri}')
 
         authorization_url, state = flow.authorization_url(
@@ -55,7 +55,7 @@ class OAuthSuccessView(TemplateView):
             scopes=gsheets_settings.SCOPES,
             state=state
         )
-        flow.redirect_uri = get_oauth_cb_url(request)
+        flow.redirect_uri = get_oauth_cb_url(request, cb_hostname=gsheets_settings.OAUTH_REDIRECT_HOSTNAME)
 
         # Use the authorization server's response to fetch the OAuth 2.0 tokens.
         authorization_response = ensure_https(request.build_absolute_uri())
