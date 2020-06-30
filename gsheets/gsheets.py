@@ -221,13 +221,13 @@ class SheetPushInterface(BaseSheetInterface):
 
         for i, obj in enumerate(queryset):
             if i > 0 and i % self.batch_size == 0:
-                writeout_range_start_row = (rows_start + 1) + i
+                writeout_range_start_row = (rows_start + 1) + last_writeout
                 writeout_range_end_row = writeout_range_start_row + self.batch_size
                 writeout_range = BaseSheetInterface.get_sheet_range(
                     self.sheet_name, f'{cols_start}{writeout_range_start_row}:{cols_end}{writeout_range_end_row}'
                 )
 
-                writeout_data_start_row = (rows_start - 1) + i
+                writeout_data_start_row = (rows_start - 1) + last_writeout
                 writeout_data_end_row = writeout_data_start_row + self.batch_size
                 writeout_data = self.sheet_data[writeout_data_start_row:writeout_data_end_row]
 
