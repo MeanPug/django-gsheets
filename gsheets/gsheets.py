@@ -347,8 +347,6 @@ class SheetPullInterface(BaseSheetInterface):
                 continue
             if j.lower() == 'true':
                 cleaned_data[i] = 'True'
-        print('THIS IS for debugging puproses')
-        print(cleaned_data)
         try:
             row_id = data[self.sheet_id_field]
 
