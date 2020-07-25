@@ -24,10 +24,13 @@ class Command(BaseCommand):
 
     def find_syncable_models(self):
         app_models = []
+        print(settings.INSTALLED_APPS)
         for app in settings.INSTALLED_APPS:
+            
             try:
                 models = apps.get_app_config(app).get_models()
             except LookupError:
+                print('lookup error')
                 continue
 
             app_models += [m for m in models if issubclass(m, mixins.BaseGoogleSheetMixin)]
