@@ -340,7 +340,8 @@ class SheetPullInterface(BaseSheetInterface):
             field: getattr(self.model_cls, f'clean_{field}_data')(value) if hasattr(self.model_cls, f'clean_{field}_data') else value
             for field, value in data.items() if field != self.sheet_id_field and field in model_fields
         }
-
+        print('THIS IS for debugging puproses')
+        print(clean_data)
         try:
             row_id = data[self.sheet_id_field]
 
