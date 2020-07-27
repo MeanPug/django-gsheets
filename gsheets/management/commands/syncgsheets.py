@@ -25,7 +25,6 @@ class Command(BaseCommand):
     def find_syncable_models(self):
         app_models = []
         for app in settings.INSTALLED_APPS:
-            
             try:
                 models = apps.get_app_config(app).get_models()
             except LookupError:
