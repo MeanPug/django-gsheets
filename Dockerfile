@@ -9,6 +9,8 @@ RUN apk add linux-headers
 
 ADD requirements.txt .
 
+ENV CRYPTOGRAPHY_DONT_BUILD_RUST=1
+
 RUN pip install -r requirements.txt
 
 EXPOSE 3031
