@@ -157,3 +157,6 @@ LOGGING = {
 GSHEETS = {
     'CLIENT_SECRETS': '/creds/client_secrets.json'
 }
+
+OAUTHLIB_RELAX_TOKEN_SCOPE = True
+os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
