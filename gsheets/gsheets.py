@@ -1,3 +1,4 @@
+from django.db.models import Model, ForeignKey
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from django.core.exceptions import ObjectDoesNotExist
@@ -39,6 +40,7 @@ class BaseSheetInterface(object):
         self._credentials = None
         self._sheet_data = None
         self._sheet_headers = None
+        self._write_initial_headers = False
 
     @property
     def credentials(self):
@@ -63,8 +65,9 @@ class BaseSheetInterface(object):
     def api(self):
         if self._api is not None:
             return self._api
-
-        self._api = build('sheets', 'v4', credentials=self.credentials)
+        # disable cache to avoid warning: "ModuleNotFoundError: No module named 'oauth2client'"
+        # https://stackoverflow.com/a/44518587/164374
+        self._api = build('sheets', 'v4', credentials=self.credentials, cache_discovery=False)
         return self._api
 
     @property
@@ -74,9 +77,10 @@ class BaseSheetInterface(object):
 
         api_res = self.api.spreadsheets().values().get(spreadsheetId=self.spreadsheet_id, range=self.sheet_range).execute()
         self._sheet_data = api_res.get('values', [])
-        self._sheet_headers = self._sheet_data[0]
-        # remove the headers from the data
-        self._sheet_data = self._sheet_data[1:]
+        if len(self._sheet_data) > 0:
+            self._sheet_headers = self._sheet_data[0]
+            # remove the headers from the data
+            self._sheet_data = self._sheet_data[1:]
 
         return self._sheet_data
 
@@ -154,8 +158,11 @@ class BaseSheetInterface(object):
         :raises: `KeyError` if the data doesn't contain the ID field for the model
         :raises: `ValueError` if the columns don't contain the Sheet ID col
         """
-        model_id = data[self.model_id_field]
-        sheet_id_ix = self.column_index(self.sheet_id_field)
+        try:
+            model_id = data[self.model_id_field]
+            sheet_id_ix = self.column_index(self.sheet_id_field)
+        except AttributeError as e:
+            return None
 
         # look through the sheet ID column for the model ID
         for i, r in enumerate(self.sheet_data):
@@ -220,6 +227,7 @@ class SheetPushInterface(BaseSheetInterface):
         rows_start, rows_end = self.sheet_range_rows
 
         for i, obj in enumerate(queryset):
+            # i > 0 because of headers????
             if i > 0 and i % self.batch_size == 0:
                 writeout_range_start_row = (rows_start + 1) + last_writeout
                 writeout_range_end_row = writeout_range_start_row + self.batch_size
@@ -241,9 +249,15 @@ class SheetPushInterface(BaseSheetInterface):
 
         # writeout any remaining data
         if last_writeout < len(queryset):
+            first_row_index = 2
+            if self._write_initial_headers:
+                first_row_index = 1
+                # need to replace the model_id_field with sheet_id_field to stay in sync with the rest of the code
+                initial_headers = [self.sheet_id_field if x == self.model_id_field else x for x in self.push_fields]
+                self.sheet_data.insert(0, initial_headers)
             logger.debug(f'writing out {len(queryset) - last_writeout} final rows of data')
             writeout_range = BaseSheetInterface.get_sheet_range(
-                self.sheet_name, f'{cols_start}{max(2, last_writeout)}:{cols_end}{rows_end}'
+                self.sheet_name, f'{cols_start}{max(first_row_index, last_writeout)}:{cols_end}{rows_end}'
             )
             self.writeout_batch([writeout_range], [self.sheet_data[last_writeout:]])
 
@@ -258,8 +272,16 @@ class SheetPushInterface(BaseSheetInterface):
         for field in data.keys():
             try:
                 field_indexes.append((field, self.column_index(field if field != self.model_id_field else self.sheet_id_field)))
-            except ValueError:
+            except (ValueError, AttributeError) as e:
                 logger.info(f'skipping field {field} because it has no header')
+
+        # if empty assume first push with empty sheet
+        if len(field_indexes) == 0:
+            # write headers to sheet_data
+            self._write_initial_headers = True
+
+            for index, data_obj in enumerate(data.keys()):
+                field_indexes.append((data_obj, index))
 
         # order the field indexes by their col index
         sorted_field_indexes = sorted(field_indexes, key=lambda x: x[1])
@@ -267,7 +289,11 @@ class SheetPushInterface(BaseSheetInterface):
         row_data = []
         for field, ix in sorted_field_indexes:
             logger.debug(f'writing data in field {field} to col ix {ix}')
-            row_data.append(data[field])
+            # if is a model instance then get the pk
+            if isinstance(data[field], Model):
+                row_data.append(data[field].pk)
+            else:
+                row_data.append(data[field])
 
         # get the row to update if it exists, otherwise we will add a new row
         existing_row_ix = self.existing_row(**data)
@@ -290,6 +316,12 @@ class SheetPullInterface(BaseSheetInterface):
     def pull_sheet(self):
         sheet_fields = self.pull_fields
         rows_start, rows_end = self.sheet_range_rows
+
+        # if no headers assume empty sheet and return nothing to do here
+        # if push also requested it will get eventually populated again
+        if self.sheet_headers is None:
+            return None
+
         field_indexes = {self.column_index(f): f for f in self.sheet_headers if f in sheet_fields or sheet_fields == 'all'}
         instances = []
         writeout_batch = []
@@ -340,6 +372,13 @@ class SheetPullInterface(BaseSheetInterface):
             field: getattr(self.model_cls, f'clean_{field}_data')(value) if hasattr(self.model_cls, f'clean_{field}_data') else value
             for field, value in data.items() if field != self.sheet_id_field and field in model_fields
         }
+
+        # handle foreign keys
+        for field_name, value in cleaned_data.items():
+            field_obj = getattr(self.model_cls, field_name).field
+            if isinstance(field_obj, ForeignKey):
+                resolved_value = field_obj.related_model.objects.filter(pk=value).first()
+                cleaned_data[field_name] = resolved_value
 
         try:
             row_id = data[self.sheet_id_field]
