@@ -31,6 +31,14 @@ class BaseGoogleSheetMixin(object):
 
 class SheetPushableMixin(BaseGoogleSheetMixin):
     """ mixes in functionality to push data from a Django model to a google sheet. """
+    def push_instance_to_sheet(self):
+        queryset = self.__class__.get_sheet_queryset().filter(pk=self.pk)
+        interface = SheetPushInterface(self.__class__, self.__class__.spreadsheet_id, sheet_name=self.__class__.sheet_name, data_range=self.__class__.data_range,
+                                       model_id_field=self.__class__.model_id_field, sheet_id_field=self.__class__.sheet_id_field,
+                                       batch_size=self.__class__.batch_size, max_rows=self.__class__.max_rows, max_col=self.__class__.max_col,
+                                       push_fields=self.__class__.get_sheet_push_fields(), queryset=queryset)
+        return interface.upsert_table()
+
     @classmethod
     def push_to_sheet(cls):
         interface = SheetPushInterface(cls, cls.spreadsheet_id, sheet_name=cls.sheet_name, data_range=cls.data_range,
